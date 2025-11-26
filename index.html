@@ -15,6 +15,9 @@
     <!-- Babel (JSX Compiling) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- SheetJS (xlsx 파일 생성을 위한 라이브러리) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
     <style>
         /* 스크롤바 숨기기 유틸리티 */
         .no-scrollbar::-webkit-scrollbar {
@@ -260,62 +263,44 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
+            // 엑셀 다운로드 기능 (.xlsx 형식)
             const handleDownloadExcel = () => {
-                if (mcQuestions.length === 0) return;
+                if (mcQuestions.length === 0 && essayQuestions.length === 0) return;
                 
                 const today = new Date();
                 const dateString = today.toISOString().split('T')[0];
-                const fileName = `지필평가_배점표_${dateString}.xls`;
+                const fileName = `지필평가_배점표_${dateString}.xlsx`;
 
-                let tableHTML = `
-                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-                <head>
-                    <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
-                </head>
-                <body>
-                    <table border="1">
-                    <thead>
-                        <tr style="background-color: #f3f4f6; font-weight: bold;">
-                        <th>유형</th>
-                        <th>문항 번호</th>
-                        <th>난이도</th>
-                        <th>배점</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                `;
+                // 1. 데이터 준비
+                const sheetData = [
+                    ['유형', '문항 번호', '난이도', '배점'] // 헤더
+                ];
 
+                // 선다형 추가
                 mcQuestions.forEach(q => {
                     const label = difficultyLevels.find(d => d.key === q.difficulty)?.label || q.difficulty;
-                    tableHTML += `
-                        <tr>
-                        <td>선다형</td>
-                        <td>${q.id}</td>
-                        <td>${label}</td>
-                        <td style="mso-number-format:'0.0';">${q.score}</td>
-                        </tr>`;
+                    sheetData.push(['선다형', q.id, label, q.score]);
                 });
 
+                // 서술형 추가
                 essayQuestions.forEach(q => {
-                    tableHTML += `
-                        <tr>
-                        <td>서술형</td>
-                        <td>${q.id}</td>
-                        <td>-</td>
-                        <td style="mso-number-format:'0.0';">${q.score}</td>
-                        </tr>`;
+                    sheetData.push(['서술형', q.id, '-', q.score]);
                 });
 
-                tableHTML += `</tbody></table></body></html>`;
+                // 2. 워크북 생성 및 저장
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet(sheetData);
+                
+                // 컬럼 너비 설정 (보기 좋게)
+                ws['!cols'] = [
+                    { wch: 10 }, // 유형
+                    { wch: 12 }, // 문항 번호
+                    { wch: 10 }, // 난이도
+                    { wch: 10 }  // 배점
+                ];
 
-                const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', fileName);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                XLSX.utils.book_append_sheet(wb, ws, '배점표');
+                XLSX.writeFile(wb, fileName);
             };
 
             // --- 계산 값 ---
