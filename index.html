@@ -1,0 +1,774 @@
+import React, { useState, useEffect } from 'react';
+import { Settings, Calculator, CheckCircle2, AlertCircle, ToggleLeft, ToggleRight, Trash2, RotateCcw, Download, Wand2, BarChart3, X, PencilLine, LayoutList, Check, AlertTriangle } from 'lucide-react';
+
+export default function AssessmentCalculator() {
+  // --- 상태 관리 ---
+
+  // 1. 기본 설정 (선다형 + 서술형)
+  // 초기값: 선다형 100점/25문항, 서술형 0점/0문항
+  const [mcTotalScore, setMcTotalScore] = useState(100); 
+  const [mcQuestionCount, setMcQuestionCount] = useState(25); 
+  const [scoreGap, setScoreGap] = useState(0.5); 
+
+  const [essayTotalScore, setEssayTotalScore] = useState(0); 
+  const [essayQuestionCount, setEssayQuestionCount] = useState(0); 
+
+  // 2. 비율 설정 모드 (선다형용)
+  const [isPercentMode, setIsPercentMode] = useState(false);
+  const [ratios, setRatios] = useState({
+    high: 10,
+    midHigh: 20,
+    mid: 40,
+    midLow: 20,
+    low: 10
+  });
+
+  // 3. 문항 데이터
+  const [mcQuestions, setMcQuestions] = useState([]); 
+  const [essayQuestions, setEssayQuestions] = useState([]); 
+  
+  // 4. 결과 리포트 표시 여부
+  const [showReport, setShowReport] = useState(false);
+
+  // 5. 모달 상태
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    type: null, // 'RESET' | 'AUTOFILL_OVERWRITE'
+  });
+
+  // 난이도 정의 (Tailwind 색상 클래스 포함)
+  const difficultyLevels = [
+    { key: 'high', label: '상', weight: 2, color: 'bg-red-50 text-red-700 border-red-200 ring-red-100' },
+    { key: 'midHigh', label: '중상', weight: 1, color: 'bg-orange-50 text-orange-700 border-orange-200 ring-orange-100' },
+    { key: 'mid', label: '중', weight: 0, color: 'bg-yellow-50 text-yellow-700 border-yellow-200 ring-yellow-100' },
+    { key: 'midLow', label: '중하', weight: -1, color: 'bg-green-50 text-green-700 border-green-200 ring-green-100' },
+    { key: 'low', label: '하', weight: -2, color: 'bg-blue-50 text-blue-700 border-blue-200 ring-blue-100' },
+  ];
+
+  // --- 핸들러 및 로직 ---
+
+  const handleRatioChange = (key, value) => {
+    setRatios(prev => ({ ...prev, [key]: Number(value) }));
+  };
+
+  const totalRatio = Object.values(ratios).reduce((a, b) => a + b, 0);
+
+  // 점수 계산 로직
+  const calculateMcScores = (currentQuestions, targetTotal, gap) => {
+    if (currentQuestions.length === 0) return [];
+
+    let weightSum = 0;
+    currentQuestions.forEach(q => {
+      const level = difficultyLevels.find(d => d.key === q.difficulty);
+      weightSum += level ? level.weight : 0;
+    });
+
+    const baseScore = (targetTotal - (gap * weightSum)) / currentQuestions.length;
+
+    return currentQuestions.map(q => {
+      const level = difficultyLevels.find(d => d.key === q.difficulty);
+      const score = baseScore + (gap * (level ? level.weight : 0));
+      return { ...q, score: parseFloat(score.toFixed(1)) };
+    });
+  };
+
+  // 문항 생성
+  const handleCreateRows = () => {
+    let newMcQuestions = [];
+    
+    // 비율 모드에 따른 선다형 생성
+    if (isPercentMode) {
+      let remainingCount = mcQuestionCount;
+      const counts = {};
+      Object.keys(ratios).forEach(key => {
+        const count = Math.floor(mcQuestionCount * (ratios[key] / 100));
+        counts[key] = count;
+        remainingCount -= count;
+      });
+      if (remainingCount > 0) counts['mid'] += remainingCount;
+
+      let qIndex = 1;
+      difficultyLevels.forEach(level => {
+        for (let i = 0; i < counts[level.key]; i++) {
+          newMcQuestions.push({ id: qIndex++, difficulty: level.key, score: 0 });
+        }
+      });
+    } else {
+      for (let i = 1; i <= mcQuestionCount; i++) {
+        newMcQuestions.push({ id: i, difficulty: 'mid', score: 0 });
+      }
+    }
+    const calculatedMc = calculateMcScores(newMcQuestions, mcTotalScore, scoreGap);
+    setMcQuestions(calculatedMc);
+
+    // 서술형 생성
+    let newEssayQuestions = [];
+    if (essayQuestionCount > 0) {
+      const defaultEssayScore = essayTotalScore > 0 ? parseFloat((essayTotalScore / essayQuestionCount).toFixed(1)) : 0;
+      let essayStartIndex = mcQuestionCount + 1;
+      for (let i = 0; i < essayQuestionCount; i++) {
+        newEssayQuestions.push({
+          id: `서술형 ${i + 1}`,
+          realIndex: essayStartIndex + i,
+          score: defaultEssayScore
+        });
+      }
+    }
+    setEssayQuestions(newEssayQuestions);
+    setShowReport(false);
+  };
+
+  // 자동 채우기 (랜덤)
+  const performAutoFill = () => {
+    let newMcQuestions = [];
+    const keys = difficultyLevels.map(d => d.key);
+    for (let i = 1; i <= mcQuestionCount; i++) {
+      const randomKey = keys[Math.floor(Math.random() * keys.length)];
+      newMcQuestions.push({ id: i, difficulty: randomKey, score: 0 });
+    }
+    const calculatedMc = calculateMcScores(newMcQuestions, mcTotalScore, scoreGap);
+    setMcQuestions(calculatedMc);
+
+    let newEssayQuestions = [];
+    if (essayQuestionCount > 0) {
+      const defaultEssayScore = essayTotalScore > 0 ? parseFloat((essayTotalScore / essayQuestionCount).toFixed(1)) : 0;
+      let essayStartIndex = mcQuestionCount + 1;
+      for (let i = 0; i < essayQuestionCount; i++) {
+        newEssayQuestions.push({
+          id: `서술형 ${i + 1}`,
+          realIndex: essayStartIndex + i,
+          score: defaultEssayScore
+        });
+      }
+    }
+    setEssayQuestions(newEssayQuestions);
+    setShowReport(false);
+  };
+
+  const handleAutoFillClick = () => {
+    if (mcQuestions.length > 0 || essayQuestions.length > 0) {
+      setModalState({ isOpen: true, type: 'AUTOFILL_OVERWRITE' });
+    } else {
+      performAutoFill();
+    }
+  };
+
+  const handleMcDifficultyChange = (id, newDifficulty) => {
+    const updated = mcQuestions.map(q => q.id === id ? { ...q, difficulty: newDifficulty } : q);
+    const recalculated = calculateMcScores(updated, mcTotalScore, scoreGap);
+    setMcQuestions(recalculated);
+  };
+
+  const handleMcScoreChange = (id, newScore) => {
+    setMcQuestions(mcQuestions.map(q => q.id === id ? { ...q, score: Number(newScore) } : q));
+  };
+
+  const handleEssayScoreChange = (realIndex, newScore) => {
+    setEssayQuestions(essayQuestions.map(q => q.realIndex === realIndex ? { ...q, score: Number(newScore) } : q));
+  };
+
+  const handleAutoFitScore = () => {
+    const currentTotal = mcQuestions.reduce((sum, q) => sum + q.score, 0);
+    const diff = mcTotalScore - currentTotal;
+    const diffSteps = Math.round(diff * 10);
+
+    if (diffSteps === 0) return;
+
+    let newQuestions = [...mcQuestions];
+    const stepValue = diffSteps > 0 ? 0.1 : -0.1;
+    const absSteps = Math.abs(diffSteps);
+
+    for (let i = 0; i < absSteps; i++) {
+      const idx = i % newQuestions.length; 
+      newQuestions[idx].score = parseFloat((newQuestions[idx].score + stepValue).toFixed(1));
+    }
+    setMcQuestions(newQuestions);
+  };
+
+  const performReset = () => {
+    setMcTotalScore(100);
+    setMcQuestionCount(25);
+    setScoreGap(0.5);
+    setEssayTotalScore(0);
+    setEssayQuestionCount(0);
+    setIsPercentMode(false);
+    setRatios({ high: 10, midHigh: 20, mid: 40, midLow: 20, low: 10 });
+    setMcQuestions([]);
+    setEssayQuestions([]);
+    setShowReport(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleResetClick = () => {
+    setModalState({ isOpen: true, type: 'RESET' });
+  };
+
+  const handleConfirmAction = () => {
+    if (modalState.type === 'RESET') performReset();
+    else if (modalState.type === 'AUTOFILL_OVERWRITE') performAutoFill();
+    setModalState({ isOpen: false, type: null });
+  };
+
+  const handleShowReport = () => {
+    if (mcQuestions.length === 0 && essayQuestions.length === 0) return;
+    setShowReport(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDownloadExcel = () => {
+    if (mcQuestions.length === 0) return;
+    
+    const today = new Date();
+    const dateString = today.toISOString().split('T')[0];
+    const fileName = `지필평가_배점표_${dateString}.xls`;
+
+    let tableHTML = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
+      </head>
+      <body>
+        <table border="1">
+          <thead>
+            <tr style="background-color: #f3f4f6; font-weight: bold;">
+              <th>유형</th>
+              <th>문항 번호</th>
+              <th>난이도</th>
+              <th>배점</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    mcQuestions.forEach(q => {
+      const label = difficultyLevels.find(d => d.key === q.difficulty)?.label || q.difficulty;
+      tableHTML += `
+        <tr>
+          <td>선다형</td>
+          <td>${q.id}</td>
+          <td>${label}</td>
+          <td style="mso-number-format:'0.0';">${q.score}</td>
+        </tr>`;
+    });
+
+    essayQuestions.forEach(q => {
+      tableHTML += `
+        <tr>
+          <td>서술형</td>
+          <td>${q.id}</td>
+          <td>-</td>
+          <td style="mso-number-format:'0.0';">${q.score}</td>
+        </tr>`;
+    });
+
+    tableHTML += `</tbody></table></body></html>`;
+
+    const blob = new Blob([tableHTML], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- 계산 값 ---
+  const currentMcTotal = mcQuestions.reduce((sum, q) => sum + q.score, 0);
+  const mcDeficit = (mcTotalScore - currentMcTotal).toFixed(1);
+  const hasMcError = Math.abs(mcTotalScore - currentMcTotal) > 0.05;
+
+  const currentEssayTotal = essayQuestions.reduce((sum, q) => sum + q.score, 0);
+  const essayDeficit = (essayTotalScore - currentEssayTotal).toFixed(1);
+
+  const grandTotalPlan = mcTotalScore + essayTotalScore;
+  const grandTotalCalc = currentMcTotal + currentEssayTotal;
+
+  const difficultyStats = difficultyLevels.map(level => {
+    const count = mcQuestions.filter(q => q.difficulty === level.key).length;
+    const ratio = mcQuestions.length > 0 ? ((count / mcQuestions.length) * 100).toFixed(1) : 0;
+    
+    let weightSum = 0;
+    mcQuestions.forEach(q => {
+      const l = difficultyLevels.find(d => d.key === q.difficulty);
+      weightSum += l ? l.weight : 0;
+    });
+    const baseScore = mcQuestions.length > 0 ? (mcTotalScore - (scoreGap * weightSum)) / mcQuestions.length : 0;
+    const standardScore = (baseScore + (scoreGap * level.weight)).toFixed(1);
+
+    return { ...level, count, ratio, standardScore };
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-40">
+      
+      {/* 커스텀 모달 */}
+      {modalState.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 transform scale-100 animate-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center gap-4">
+              <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center text-red-600 mb-2">
+                <AlertTriangle className="w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">
+                  {modalState.type === 'RESET' ? '초기화 확인' : '덮어쓰기 확인'}
+                </h3>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  {modalState.type === 'RESET' 
+                    ? '모든 설정과 문항 데이터가 삭제되고 초기 상태(선다형 100점/25문항)로 되돌아갑니다.' 
+                    : '현재 작성된 내용이 사라지고 새로운 랜덤 예시 값으로 대체됩니다.'}
+                  <br/>계속하시겠습니까?
+                </p>
+              </div>
+              <div className="flex gap-3 w-full mt-4">
+                <button 
+                  onClick={() => setModalState({ isOpen: false, type: null })}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={handleConfirmAction}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition"
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 헤더 */}
+      <header className="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-50 backdrop-blur-md bg-opacity-95">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <h1 className="text-lg md:text-xl font-bold flex items-center gap-2">
+            <Calculator className="w-6 h-6" />
+            지필평가 배점 계산기 (Grading Guru)
+          </h1>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto p-4 space-y-8 mt-6">
+
+        {/* 설정 영역 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+          {/* 선다형 설정 카드 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col h-full hover:shadow-md transition-shadow duration-300">
+            <h2 className="text-lg font-bold mb-5 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-3">
+              <LayoutList className="w-5 h-5 text-blue-600" /> 선다형 설정
+            </h2>
+            <div className="space-y-5 flex-1">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-slate-600">배점 합계 (만점)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={mcTotalScore} 
+                    onChange={(e) => setMcTotalScore(Number(e.target.value))}
+                    className="w-28 p-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold bg-slate-50 text-lg"
+                  />
+                  <span className="text-sm text-slate-500 font-medium w-8">점</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-slate-600">문항 수</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={mcQuestionCount} 
+                    onChange={(e) => setMcQuestionCount(Number(e.target.value))}
+                    className="w-28 p-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold bg-slate-50 text-lg"
+                  />
+                  <span className="text-sm text-slate-500 font-medium w-8">문항</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-slate-600">난이도 급간(점수차)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    step="0.1"
+                    value={scoreGap} 
+                    onChange={(e) => setScoreGap(Number(e.target.value))}
+                    className="w-28 p-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold bg-slate-50 text-lg"
+                  />
+                  <span className="text-sm text-slate-500 font-medium w-8">점</span>
+                </div>
+              </div>
+
+              {/* 비율 설정 토글 */}
+              <div className="mt-6 pt-4 border-t border-dashed border-slate-200">
+                 <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-bold text-slate-700">난이도별 비율 지정</span>
+                  <button onClick={() => setIsPercentMode(!isPercentMode)} className="text-blue-600 hover:text-blue-800 transition focus:outline-none">
+                    {isPercentMode ? <ToggleRight className="w-9 h-9" /> : <ToggleLeft className="w-9 h-9 text-slate-300" />}
+                  </button>
+                </div>
+                
+                {isPercentMode && (
+                  <div className="grid grid-cols-5 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                    {difficultyLevels.map((level) => (
+                      <div key={level.key} className="flex flex-col items-center">
+                        <label className="text-[11px] text-slate-500 mb-1 font-medium">{level.label}</label>
+                        <input 
+                          type="number" 
+                          value={ratios[level.key]}
+                          onChange={(e) => handleRatioChange(level.key, e.target.value)}
+                          className="w-full p-1.5 text-center text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    ))}
+                    <div className={`col-span-5 text-right text-xs mt-1 font-medium ${totalRatio === 100 ? 'text-green-600' : 'text-red-500'}`}>
+                      합계: {totalRatio}%
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 서술형 설정 카드 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col h-full hover:shadow-md transition-shadow duration-300">
+            <h2 className="text-lg font-bold mb-5 flex items-center gap-2 text-slate-800 border-b border-slate-100 pb-3">
+              <PencilLine className="w-5 h-5 text-green-600" /> 서술형 설정
+            </h2>
+            <div className="space-y-5 flex-1">
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-slate-600">배점 합계 (만점)</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={essayTotalScore} 
+                    onChange={(e) => setEssayTotalScore(Number(e.target.value))}
+                    className="w-28 p-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none font-bold bg-slate-50 text-lg"
+                  />
+                  <span className="text-sm text-slate-500 font-medium w-8">점</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-slate-600">문항 수</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="number" 
+                    value={essayQuestionCount} 
+                    onChange={(e) => setEssayQuestionCount(Number(e.target.value))}
+                    className="w-28 p-2 text-right border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none font-bold bg-slate-50 text-lg"
+                  />
+                  <span className="text-sm text-slate-500 font-medium w-8">문항</span>
+                </div>
+              </div>
+              
+              <div className="mt-auto pt-8">
+                <div className="bg-slate-50 p-4 rounded-xl text-center border border-slate-100">
+                  <div className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wider">총점 (선다형 + 서술형)</div>
+                  <div className="text-3xl font-extrabold text-slate-800">{grandTotalPlan}점</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 초기 액션 버튼 영역 (문항 없을 때) */}
+        {mcQuestions.length === 0 && essayQuestions.length === 0 ? (
+          <div className="flex flex-col sm:flex-row gap-4 mt-4">
+             <button
+              onClick={handleCreateRows}
+              className="flex-1 py-5 bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-lg font-bold rounded-2xl shadow-lg transition transform active:scale-[0.99] flex flex-col items-center justify-center gap-1 group"
+            >
+              <div className="flex items-center gap-2 group-hover:-translate-y-0.5 transition-transform"><LayoutList className="w-6 h-6" /> 문항 행 만들기</div>
+              <span className="text-xs opacity-80 font-normal">설정된 값으로 빈 양식을 생성합니다</span>
+            </button>
+            <button
+              onClick={handleAutoFillClick}
+              className="flex-1 py-5 bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-lg font-bold rounded-2xl shadow-lg transition transform active:scale-[0.99] flex flex-col items-center justify-center gap-1 group"
+            >
+              <div className="flex items-center gap-2 group-hover:-translate-y-0.5 transition-transform"><Wand2 className="w-6 h-6" /> 예시 자동 채우기</div>
+              <span className="text-xs opacity-80 font-normal">랜덤 난이도로 예시를 자동 생성합니다</span>
+            </button>
+          </div>
+        ) : (
+          /* 하단 고정 버튼 바 (문항 있을 때) - 푸터 위쪽 배치 */
+          <div className="fixed bottom-[48px] left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 p-3 shadow-[0_-4px_10px_-1px_rgba(0,0,0,0.05)] z-40 animate-in slide-in-from-bottom-10 duration-300">
+            <div className="max-w-5xl mx-auto flex overflow-x-auto gap-2 no-scrollbar md:grid md:grid-cols-4">
+              <button
+                onClick={handleShowReport}
+                className="flex-shrink-0 md:flex-shrink py-3 px-4 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl shadow-sm transition active:scale-[0.98] flex items-center justify-center gap-2 min-w-[140px]"
+              >
+                <BarChart3 className="w-5 h-5" /> 배점 결과 확인
+              </button>
+              
+              <button
+                onClick={handleAutoFillClick}
+                className="flex-shrink-0 md:flex-shrink py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-sm transition active:scale-[0.98] flex items-center justify-center gap-2 min-w-[140px]"
+              >
+                <Wand2 className="w-5 h-5" /> 난이도&배점 자동 채우기
+              </button>
+
+              <button
+                onClick={handleResetClick}
+                className="flex-shrink-0 md:flex-shrink py-3 px-4 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold rounded-xl shadow-sm transition active:scale-[0.98] flex items-center justify-center gap-2 min-w-[100px]"
+              >
+                <RotateCcw className="w-5 h-5" /> 초기화
+              </button>
+              
+              <button
+                onClick={handleDownloadExcel}
+                className="flex-shrink-0 md:flex-shrink py-3 px-4 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-xl shadow-sm transition active:scale-[0.98] flex items-center justify-center gap-2 min-w-[120px]"
+              >
+                <Download className="w-5 h-5" /> 엑셀 저장
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 리포트 영역 */}
+        {showReport && (
+          <div className="animate-in slide-in-from-top-8 duration-500">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden mb-8">
+              <div className="bg-slate-800 text-white px-6 py-4 flex justify-between items-center">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" /> 배점 결과 리포트
+                </h2>
+                <button onClick={() => setShowReport(false)} className="text-slate-400 hover:text-white transition">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="p-6 md:p-8 space-y-8">
+                {/* 요약 섹션 */}
+                <div className="bg-slate-50 rounded-xl p-6 border border-slate-200">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-4">
+                    
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">선다형 문항 수</div>
+                      <div className="text-2xl font-bold text-slate-800">{mcQuestions.length} <span className="text-sm font-normal text-slate-400">문항</span></div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">선다형 배점 합계 (계산값)</div>
+                      <div className="flex flex-col items-start gap-2">
+                        <div className={`text-3xl font-bold tracking-tight ${hasMcError ? 'text-red-500' : 'text-blue-600'}`}>
+                          {currentMcTotal.toFixed(1)}
+                        </div>
+                        {hasMcError && (
+                          <button 
+                            onClick={handleAutoFitScore}
+                            className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-full flex items-center gap-1 transition font-medium animate-pulse"
+                            title="소수점 오차를 보정합니다."
+                          >
+                            <Wand2 className="w-3 h-3" /> {mcTotalScore}점 자동 맞추기
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                     <div className="space-y-1">
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">선다형 부족값</div>
+                      <div className={`text-2xl font-bold ${Number(mcDeficit) === 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {mcDeficit}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">서술형 총점 (계획)</div>
+                      <div className="text-2xl font-bold text-slate-800">{essayTotalScore.toFixed(1)}</div>
+                      <div className="text-xs text-slate-400">문항 수: {essayQuestions.length}문항</div>
+                    </div>
+                    <div className="space-y-1">
+                       <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">서술형 합계 (계산값)</div>
+                      <div className="text-2xl font-bold text-blue-600">{currentEssayTotal.toFixed(1)}</div>
+                    </div>
+                     <div className="space-y-1">
+                      <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">서술형 부족값</div>
+                      <div className={`text-2xl font-bold ${Number(essayDeficit) === 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {essayDeficit}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t border-slate-200">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="text-sm text-slate-500 font-bold uppercase">지필평가 총점 (선다형 + 서술형)</div>
+                        <div className="text-4xl font-extrabold text-slate-900 mt-1">{grandTotalCalc.toFixed(1)}</div>
+                      </div>
+                      <div className="text-right text-sm text-slate-500 bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
+                        계획 총점: <span className="font-bold text-slate-800">{grandTotalPlan}</span> (선다형 {mcTotalScore} + 서술형 {essayTotalScore})
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 난이도별 기준 점수 */}
+                <div>
+                  <h3 className="text-md font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
+                    선다형 난이도별 기준 점수
+                  </h3>
+                  <div className="grid grid-cols-5 gap-2 md:gap-4">
+                    {difficultyStats.map((stat) => (
+                      <div key={stat.key} className={`flex flex-col items-center justify-center p-3 rounded-xl border ${stat.color}`}>
+                        <span className="text-xs font-bold opacity-70 mb-1">{stat.label}</span>
+                        <span className="text-xl font-extrabold">{stat.standardScore}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 난이도별 통계 테이블 */}
+                <div>
+                  <h3 className="text-md font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
+                    선다형 난이도별 개수 및 비율
+                  </h3>
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-medium">
+                        <tr>
+                          <th className="p-4 pl-6">난이도</th>
+                          <th className="p-4">문항 수</th>
+                          <th className="p-4 text-right pr-6">비율</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {difficultyStats.map((stat) => (
+                          <tr key={stat.key} className="hover:bg-slate-50">
+                            <td className="p-4 pl-6 font-medium text-slate-700">{stat.label}</td>
+                            <td className="p-4">{stat.count}</td>
+                            <td className="p-4 text-right pr-6 font-mono text-slate-500">{stat.ratio}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 문항 테이블 영역 */}
+        {(mcQuestions.length > 0 || essayQuestions.length > 0) && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            {/* 선다형 테이블 */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-4 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
+                <h3 className="font-bold text-blue-800 flex items-center gap-2">
+                  <span className="bg-blue-100 text-blue-700 text-xs font-extrabold px-2 py-1 rounded-md">I</span> 선다형 문항 목록
+                </h3>
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
+                  합계: {currentMcTotal.toFixed(1)} / {mcTotalScore}
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="p-3 w-16 text-center border-b">번호</th>
+                      <th className="p-3 w-32 border-b">난이도</th>
+                      <th className="p-3 border-b">배점</th>
+                      <th className="p-3 border-b text-right">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {mcQuestions.map((q) => (
+                      <tr key={q.id} className="hover:bg-slate-50 group">
+                        <td className="p-3 text-center font-medium text-slate-600">{q.id}</td>
+                        <td className="p-3">
+                          <select 
+                            value={q.difficulty}
+                            onChange={(e) => handleMcDifficultyChange(q.id, e.target.value)}
+                            className={`w-full p-2 text-sm border rounded-lg cursor-pointer font-medium outline-none focus:ring-2 focus:ring-blue-200 transition-colors ${
+                              difficultyLevels.find(d => d.key === q.difficulty)?.color.split(' ')[0]
+                            }`}
+                          >
+                            {difficultyLevels.map(level => (
+                              <option key={level.key} value={level.key}>{level.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-3">
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={q.score}
+                            onChange={(e) => handleMcScoreChange(q.id, e.target.value)}
+                            className="w-24 p-2 border border-slate-300 rounded-lg text-right font-mono text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                          />
+                        </td>
+                        <td className="p-3 text-right">
+                          <button 
+                            onClick={() => setMcQuestions(mcQuestions.filter(item => item.id !== q.id))}
+                            className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 서술형 테이블 */}
+            {essayQuestions.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 bg-green-50 border-b border-green-100 flex justify-between items-center">
+                  <h3 className="font-bold text-green-800 flex items-center gap-2">
+                    <span className="bg-green-100 text-green-700 text-xs font-extrabold px-2 py-1 rounded-md">II</span> 서술형 문항 목록
+                  </h3>
+                   <span className="text-xs font-bold text-green-600 bg-green-50 px-3 py-1.5 rounded-full border border-green-100">
+                    합계: {currentEssayTotal.toFixed(1)} / {essayTotalScore}
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                      <tr>
+                        <th className="p-3 w-24 text-center border-b">문항</th>
+                        <th className="p-3 border-b">배점</th>
+                        <th className="p-3 border-b text-right">삭제</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {essayQuestions.map((q) => (
+                        <tr key={q.id} className="hover:bg-slate-50 group">
+                          <td className="p-3 text-center font-medium text-slate-600">{q.id}</td>
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={q.score}
+                              onChange={(e) => handleEssayScoreChange(q.realIndex, e.target.value)}
+                              className="w-24 p-2 border border-slate-300 rounded-lg text-right font-mono text-slate-700 focus:ring-2 focus:ring-green-500 outline-none transition-shadow"
+                            />
+                          </td>
+                           <td className="p-3 text-right">
+                            <button 
+                              onClick={() => setEssayQuestions(essayQuestions.filter(item => item.realIndex !== q.realIndex))}
+                              className="text-slate-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            
+          </div>
+        )}
+      </main>
+
+      <footer className="fixed bottom-0 w-full bg-slate-900 text-slate-400 py-3 text-center text-xs md:text-sm shadow-inner z-50">
+        © 2025 수원공고 HanJC
+      </footer>
+    </div>
+  );
+}
